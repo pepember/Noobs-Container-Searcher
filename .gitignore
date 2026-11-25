@@ -1,0 +1,7 @@
+/.gradle/
+/build/
+/run/
+/run-fabric/
+/run-neoforge/
+/spike-bootstrap/.gradle/
+/spike-bootstrap/build/

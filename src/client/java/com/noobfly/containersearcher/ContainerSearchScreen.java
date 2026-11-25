@@ -94,6 +94,14 @@ public final class ContainerSearchScreen extends CompatScreen {
 	private static final int MAX_PANEL_HEIGHT = 480;
 	private static final int UNLIMITED_DISTANCE = -1;
 	private static final int[] DISTANCE_PRESETS = {100, 250, 500, UNLIMITED_DISTANCE};
+	private static final String[] SEARCH_EXAMPLE_KEYS = {
+		"screen.noobs_container_searcher.search_example_name",
+		"screen.noobs_container_searcher.search_example_lore",
+		"screen.noobs_container_searcher.search_example_durability",
+		"screen.noobs_container_searcher.search_example_enchanted",
+		"screen.noobs_container_searcher.search_example_include",
+		"screen.noobs_container_searcher.search_example_exclude"
+	};
 	private static final int[] LOCATION_COLORS = {0xFF4CC38A, 0xFFE8836B, 0xFF5AA9F0, 0xFFE0B070, 0xFFC090E0, 0xFFE06A9A, 0xFF55D6D6, 0xFFE8D84C};
 	private static final Item[] LOCATION_ICONS = {
 		Items.COMPASS, Items.CRAFTING_TABLE, Items.WHEAT, Items.IRON_PICKAXE, Items.ENDER_PEARL, Items.CHEST,
@@ -132,6 +140,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 
 	private final SearchController controller;
 	private final List<ContainerRecord> records;
+	private final Screen inventoryParent;
 	private final LibrarianRerollController reroll;
 	private final List<ResultRow> rows = new ArrayList<>();
 	private final List<FilterEntry> filters = new ArrayList<>();
@@ -203,9 +212,14 @@ public final class ContainerSearchScreen extends CompatScreen {
 	private boolean ctrlDown;
 
 	public ContainerSearchScreen(SearchController controller, List<ContainerRecord> records) {
+		this(controller, records, null);
+	}
+
+	ContainerSearchScreen(SearchController controller, List<ContainerRecord> records, Screen inventoryParent) {
 		super(Component.translatable("screen.noobs_container_searcher.title"));
 		this.controller = controller;
 		this.records = records;
+		this.inventoryParent = inventoryParent;
 		ITEM_NAME_CACHE.clear();
 		ENCHANTMENT_NAME_CACHE.clear();
 		this.reroll = ContainerSearcherClient.librarianReroll();
@@ -214,7 +228,8 @@ public final class ContainerSearchScreen extends CompatScreen {
 
 	@Override
 	protected void init() {
-	fitGuiScale();
+		String previousQuery = searchBox == null ? "" : searchBox.getValue();
+		fitGuiScale();
 		searchBox = newBox(Component.translatable("screen.noobs_container_searcher.search"), "screen.noobs_container_searcher.search_hint");
 		searchBox.setResponder(value -> {
 			resultScroll = 0;
@@ -272,7 +287,8 @@ public final class ContainerSearchScreen extends CompatScreen {
 		});
 
 		loadEnchantments();
-		switchTab(Tab.SEARCH);
+		switchTab(tab);
+		searchBox.setValue(previousQuery);
 	}
 
 	// pick the biggest gui scale that still leaves FIT_WIDTH x FIT_HEIGHT, put the player's scale back on close
@@ -463,14 +479,14 @@ public final class ContainerSearchScreen extends CompatScreen {
 		int ty = by + 28;
 		g.text(font, Component.translatable("screen.noobs_container_searcher.try"), rx, ty + 2, TEXT_MUTED);
 		int tagX = rx + font.width(Component.translatable("screen.noobs_container_searcher.try")) + 6;
-		for (String snippet : new String[] {"name:", "lore:", "durability:<50", "enchanted", "include:", "exclude:"}) {
+		for (String key : SEARCH_EXAMPLE_KEYS) {
+			String snippet = Component.translatable(key).getString();
 			if (tagX + font.width(snippet) + 8 > rx + rw) {
 				break;
 			}
-			final String insert = snippet;
 			tagX += tag(g, tagX, ty, snippet, TEXT_SECONDARY, SURFACE, 12, () -> {
 				String current = searchBox.getValue().trim();
-				searchBox.setValue(current.isEmpty() ? insert : current + " " + insert);
+				searchBox.setValue(current.isEmpty() ? snippet : current + " " + snippet);
 				focusBox(searchBox);
 			}) + 4;
 		}
@@ -779,6 +795,15 @@ public final class ContainerSearchScreen extends CompatScreen {
 				rightX -= 18;
 			}
 		}
+		int optionsX = 0;
+		int optionsWidth = 0;
+		if (hover && !isVillager(row.record)) {
+			String options = Component.translatable("screen.noobs_container_searcher.container_options").getString();
+			optionsWidth = font.width(options) + 12;
+			optionsX = rightX - optionsWidth;
+			drawButton(g, optionsX, y + 4, optionsWidth, 20, options, ACCENT, ACCENT_HOVER, ACCENT_DARK, true, null);
+			rightX = optionsX - 6;
+		}
 
 		int countW = row.count > 1 ? font.width("x" + row.count) + 5 : 0;
 		int nameMax = Math.max(40, rightX - x - 36 - countW);
@@ -802,7 +827,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		}
 		String container = containerName(row.record.containerType).getString();
 		int whereMax = Math.max(40, rightX - cx - 8);
-		String containerText = trim(container, whereMax);
+		String containerText = trim(row.record.customName == null ? container : row.record.customName, whereMax);
 		g.text(font, containerText, cx, y + 17, containerColor(container));
 		cx += font.width(containerText);
 		if (row.record.blockGone) {
@@ -828,6 +853,18 @@ public final class ContainerSearchScreen extends CompatScreen {
 		if (allW > 0) {
 			hitClipped(allX, y + 4, allW, 20, x, viewY, w, viewH, () -> locateRow(row, true));
 		}
+		if (optionsWidth > 0) {
+			hitClipped(optionsX, y + 4, optionsWidth, 20, x, viewY, w, viewH, () -> openContainerOptions(row.record));
+		}
+	}
+
+	private void openContainerOptions(ContainerRecord record) {
+		Compat.setScreen(minecraft, new ContainerOptionsScreen(this, controller, record, () -> {
+			records.clear();
+			records.addAll(controller.recordsForServer(record.server));
+			dataBytes = -1;
+			rebuild();
+		}));
 	}
 
 	private void locateRow(ResultRow row, boolean all) {
@@ -838,12 +875,12 @@ public final class ContainerSearchScreen extends CompatScreen {
 			if (minecraft != null && minecraft.player != null) {
 				Compat.message(minecraft.player, Component.translatable("message.noobs_container_searcher.ender_gone").withStyle(ChatFormatting.YELLOW));
 			}
-			onClose();
+			Compat.setScreen(minecraft, null);
 			return;
 		}
 		List<ContainerRecord> targets = all ? recordsFor(row) : singleRecordFor(row);
 		controller.focusItem(row.itemId, targets, selectedFilter, row.item, all);
-		onClose();
+		Compat.setScreen(minecraft, null);
 	}
 
 	// just the clicked container (every ender chest for the ender inventory, they share it)
@@ -1781,19 +1818,23 @@ public final class ContainerSearchScreen extends CompatScreen {
 		return new com.google.gson.Gson().toJson(list).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
 	}
 
-	private static String formatBytes(long bytes) {
+	private String formatBytes(long bytes) {
 		if (bytes < 1024) {
-			return bytes + " B";
+			return Component.translatable("screen.noobs_container_searcher.bytes", bytes).getString();
 		}
+		Locale locale = Locale.forLanguageTag(minecraft.getLanguageManager().getSelected().replace('_', '-'));
 		double kb = bytes / 1024.0D;
 		if (kb < 1024) {
-			return String.format(Locale.ROOT, kb < 10 ? "%.1f KB" : "%.0f KB", kb);
+			String amount = String.format(locale, kb < 10 ? "%.1f" : "%.0f", kb);
+			return Component.translatable("screen.noobs_container_searcher.kilobytes", amount).getString();
 		}
 		double mb = kb / 1024.0D;
 		if (mb < 1024) {
-			return String.format(Locale.ROOT, mb < 10 ? "%.2f MB" : "%.1f MB", mb);
+			String amount = String.format(locale, mb < 10 ? "%.2f" : "%.1f", mb);
+			return Component.translatable("screen.noobs_container_searcher.megabytes", amount).getString();
 		}
-		return String.format(Locale.ROOT, "%.2f GB", mb / 1024.0D);
+		String amount = String.format(locale, "%.2f", mb / 1024.0D);
+		return Component.translatable("screen.noobs_container_searcher.gigabytes", amount).getString();
 	}
 
 	private String currentServerKey() {
@@ -2309,7 +2350,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 
 	@Override
 	public void onClose() {
-		Compat.setScreen(minecraft, null);
+		Compat.setScreen(minecraft, inventoryParent);
 	}
 
 	// deletes what the list is showing: this server, or the other server we are currently viewing
@@ -2391,7 +2432,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		rows.clear();
 		filters.clear();
 		containerTypes.clear();
-		QuerySplit split = splitQuery(searchBox == null ? "" : searchBox.getValue().trim().toLowerCase(Locale.ROOT));
+		QuerySplit split = splitQuery(searchBox == null ? "" : itemSearchText(searchBox.getValue()).trim());
 		String query = split.itemQuery();
 		String filterQuery = filterSearchBox == null ? "" : normalizedSearch(filterSearchBox.getValue());
 		Map<String, FilterEntry> filterMap = new LinkedHashMap<>();
@@ -2550,9 +2591,9 @@ public final class ContainerSearchScreen extends CompatScreen {
 			int colon = token.indexOf(':');
 			String key = colon < 0 ? "" : token.substring(0, colon);
 			List<String> target = switch (key) {
-				case "include", "type", "tur", "tür" -> include;
-				case "exclude", "ex", "not", "haric", "hariç" -> exclude;
-				case "loc", "location", "konum" -> locations;
+				case "include", "type", "tur", "tür", "тип", "включить" -> include;
+				case "exclude", "ex", "not", "haric", "hariç", "без", "исключить" -> exclude;
+				case "loc", "location", "konum", "место" -> locations;
 				default -> null;
 			};
 			if (target == null) {
@@ -2577,7 +2618,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		}
 		if (!split.locations().isEmpty()) {
 			ModSettings.Location loc = locationFor(record);
-			String name = loc == null ? "" : loc.name.toLowerCase(Locale.ROOT).replace(' ', '_');
+			String name = loc == null ? "" : itemSearchText(loc.name).replace(' ', '_');
 			return split.locations().stream().anyMatch(name::contains);
 		}
 		return true;
@@ -2586,6 +2627,9 @@ public final class ContainerSearchScreen extends CompatScreen {
 	// a full name ("chest", "shulker_box" for any colour) wins; otherwise a start of a name or of one of its
 	// words counts ("che" finds chests, "dro" droppers), and as a last try any part of the id or shown name
 	private boolean matchesContainerTypeName(ContainerRecord record, String value) {
+		if (record.customName != null && record.customName.toLowerCase(Locale.ROOT).replace(' ', '_').contains(value)) {
+			return true;
+		}
 		if (record.containerType == null) {
 			return false;
 		}
@@ -2609,7 +2653,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		for (String stored : ids) {
 			String id = stored.toLowerCase(Locale.ROOT);
 			String path = id.substring(id.lastIndexOf(':') + 1);
-			String shown = containerName(stored).getString().toLowerCase(Locale.ROOT).replace(' ', '_');
+			String shown = itemSearchText(containerName(stored).getString()).replace(' ', '_');
 			if (path.equals(value) || shown.equals(value)
 				|| (value.equals("shulker") || value.equals("shulker_box")) && path.contains("shulker_box")) {
 				exact.add(stored);
@@ -2629,56 +2673,62 @@ public final class ContainerSearchScreen extends CompatScreen {
 	}
 
 	private static boolean matchesToken(ContainerItemRecord item, String token) {
-		String currentName = localizedItemName(item).toLowerCase(Locale.ROOT);
-		if (token.startsWith("is:")) {
-			String flag = switch (token.substring(3)) {
-				case "enchanted" -> "flag:enchanted";
-				case "unenchanted" -> "flag:unenchanted";
-				case "lore" -> "flag:lore";
-				case "damaged" -> "flag:damaged";
-				case "full", "full_durability" -> "flag:full_durability";
-				case "low", "low_durability" -> "flag:low_durability";
-				case "shulker", "in_shulker" -> "flag:in_shulker";
-				default -> null;
+		int colon = token.indexOf(':');
+		if (colon >= 0) {
+			String key = token.substring(0, colon);
+			String value = token.substring(colon + 1).replace('_', ' ');
+			return switch (key) {
+				case "is", "свойство" -> matchesFlag(item, value);
+				case "enchant", "buyu", "чары", "зачарование" -> matchesEnchantment(item, value);
+				case "inside", "icinde", "внутри" -> item.inside != null && itemSearchText(item.inside).contains(value);
+				case "name", "isim", "имя", "название" -> itemSearchText(localizedItemName(item)).contains(value);
+				case "lore", "aciklama", "açıklama", "описание" -> loreText(item).contains(value);
+				case "durability", "dur", "dayaniklilik", "dayanıklılık", "прочность" -> matchesDurability(item, value);
+				default -> matchesText(item, token);
 			};
-			return flag != null && passesFilter(item, flag);
 		}
-		if (token.startsWith("enchant:") || token.startsWith("buyu:")) {
-			String value = token.substring(token.indexOf(':') + 1).replace('_', ' ');
-			for (int i = 0; i < item.enchantments.size(); i++) {
-				String id = item.enchantments.get(i).toLowerCase(Locale.ROOT).replace('_', ' ');
-				String shown = i < item.enchantmentNames.size() ? item.enchantmentNames.get(i).toLowerCase(Locale.ROOT) : "";
-				if (id.contains(value) || shown.contains(value)) {
-					return true;
-				}
+		return switch (token) {
+			case "enchanted", "buyulu", "büyülü", "зачаровано" -> item.enchanted;
+			case "unenchant", "unenchanted", "buyusuz", "büyüsüz", "без_чар" -> !item.enchanted;
+			default -> matchesText(item, token);
+		};
+	}
+
+	private static boolean matchesFlag(ContainerItemRecord item, String value) {
+		String flag = switch (value) {
+			case "enchanted", "зачаровано" -> "flag:enchanted";
+			case "unenchanted", "без чар" -> "flag:unenchanted";
+			case "lore", "описание" -> "flag:lore";
+			case "damaged", "повреждено" -> "flag:damaged";
+			case "full", "full durability", "полная прочность" -> "flag:full_durability";
+			case "low", "low durability", "низкая прочность" -> "flag:low_durability";
+			case "shulker", "in shulker", "шалкер", "в шалкере" -> "flag:in_shulker";
+			default -> null;
+		};
+		return flag != null && passesFilter(item, flag);
+	}
+
+	private static boolean matchesEnchantment(ContainerItemRecord item, String value) {
+		for (int i = 0; i < item.enchantments.size(); i++) {
+			String id = item.enchantments.get(i);
+			String saved = i < item.enchantmentNames.size() ? itemSearchText(item.enchantmentNames.get(i)) : "";
+			if (itemSearchText(id).replace('_', ' ').contains(value) || saved.contains(value)
+				|| itemSearchText(localizedEnchantmentName(id)).contains(value)) {
+				return true;
 			}
-			return false;
 		}
-		if (token.startsWith("inside:") || token.startsWith("icinde:")) {
-			String value = token.substring(token.indexOf(':') + 1).replace('_', ' ');
-			return item.inside != null && item.inside.toLowerCase(Locale.ROOT).contains(value);
-		}
-		if (token.equals("enchanted") || token.equals("buyulu") || token.equals("büyülü")) {
-			return item.enchanted;
-		}
-		if (token.equals("unenchant") || token.equals("unenchanted") || token.equals("buyusuz") || token.equals("büyüsüz")) {
-			return !item.enchanted;
-		}
-		if (token.startsWith("name:") || token.startsWith("isim:")) {
-			String value = token.substring(token.indexOf(':') + 1);
-			return currentName.contains(value);
-		}
-		if (token.startsWith("lore:") || token.startsWith("aciklama:") || token.startsWith("açıklama:")) {
-			String value = token.substring(token.indexOf(':') + 1);
-			return loreText(item).contains(value);
-		}
-		if (token.startsWith("durability:") || token.startsWith("dur:") || token.startsWith("dayaniklilik:") || token.startsWith("dayanıklılık:")) {
-			String value = token.substring(token.indexOf(':') + 1);
-			return matchesDurability(item, value);
-		}
-		return item.searchText != null && item.searchText.contains(token)
-			|| item.itemId.toLowerCase(Locale.ROOT).contains(token)
-			|| currentName.contains(token);
+		return false;
+	}
+
+	private static boolean matchesText(ContainerItemRecord item, String token) {
+		return item.searchText != null && itemSearchText(item.searchText).contains(token)
+			|| itemSearchText(item.itemId).contains(token)
+			|| itemSearchText(localizedItemName(item)).contains(token)
+			|| matchesEnchantment(item, token.replace('_', ' '));
+	}
+
+	private static String itemSearchText(String text) {
+		return text.toLowerCase(Locale.ROOT).replace('ё', 'е');
 	}
 
 	private static void addFixedFilters(Map<String, FilterEntry> filters) {
@@ -2776,7 +2826,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		if (item.loreLines == null || item.loreLines.isEmpty()) {
 			return "";
 		}
-		return String.join(" ", item.loreLines).toLowerCase(Locale.ROOT);
+		return itemSearchText(String.join(" ", item.loreLines));
 	}
 
 	private static String itemDetail(ContainerItemRecord item) {
@@ -2819,7 +2869,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		};
 	}
 
-	private static Component containerName(String storedType) {
+	static Component containerName(String storedType) {
 		if (storedType != null && storedType.startsWith("villager:")) {
 			String profession = storedType.substring("villager:".length());
 			Identifier id = Identifier.tryParse(profession);
@@ -2833,7 +2883,9 @@ public final class ContainerSearchScreen extends CompatScreen {
 		if (blockId != null && BuiltInRegistries.BLOCK.containsKey(blockId)) {
 			return BuiltInRegistries.BLOCK.getValue(blockId).getName();
 		}
-		return Component.literal(storedType);
+		return storedType == null
+			? Component.translatable("screen.noobs_container_searcher.container_options_title")
+			: Component.literal(storedType);
 	}
 
 	private static String containerTypeKey(String storedType) {
@@ -2894,7 +2946,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		return Screen.getTooltipFromItem(minecraft, stack);
 	}
 
-	private static ItemStack decodeStack(ContainerItemRecord record) {
+	static ItemStack decodeStack(ContainerItemRecord record) {
 		Minecraft client = Minecraft.getInstance();
 		if (record.stackData == null || record.stackData.isBlank() || client.level == null) {
 			return ItemStack.EMPTY;
@@ -2953,13 +3005,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 	}
 
 	private static String shortDimension(String dimension) {
-		Identifier id = Identifier.tryParse(dimension);
-		if (id == null) {
-			return dimension;
-		}
-		String key = "dimension." + id.getNamespace() + "." + id.getPath().replace('/', '.');
-		String translated = Component.translatable(key).getString();
-		return translated.equals(key) ? id.getPath() : translated;
+		return SearchController.dimensionName(dimension).getString();
 	}
 
 

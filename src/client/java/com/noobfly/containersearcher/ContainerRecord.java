@@ -13,6 +13,7 @@ public final class ContainerRecord {
 	public Integer secondaryY;
 	public Integer secondaryZ;
 	public String containerType;
+	public String customName;
 	public String entityUuid;
 	public String villagerProfession;
 	public long updatedAt;

@@ -12,8 +12,10 @@ import com.mojang.brigadier.suggestion.SuggestionProvider;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.commands.arguments.IdentifierArgument;
 import net.minecraft.core.Holder;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.ClickEvent;
@@ -253,6 +255,34 @@ public final class SearchController {
 		return 1;
 	}
 
+	void openSearchFromInventory(Screen inventory) {
+		Minecraft client = Minecraft.getInstance();
+		if (client.player == null || client.level == null || ServerRules.modDisabled() || Compat.screen(client) != inventory) {
+			return;
+		}
+		Compat.setScreen(client, new ContainerSearchScreen(this, database.allForServer(ContainerSearcherClient.serverKey(client)), inventory));
+	}
+
+	List<ContainerRecord> recordsForServer(String server) {
+		return database.allForServer(server);
+	}
+
+	void renameRecord(ContainerRecord record, String name) {
+		database.rename(record, name);
+	}
+
+	void forgetRecord(ContainerRecord record) {
+		database.removeAll(List.of(record));
+		Minecraft client = Minecraft.getInstance();
+		if (client.level != null && ContainerSearcherClient.serverKey(client).equals(record.server)
+			&& ContainerSearcherClient.dimensionKey(client).equals(record.dimension)) {
+			highlights.removeAt(new BlockPos(record.x, record.y, record.z));
+			if (record.secondaryX != null && record.secondaryY != null && record.secondaryZ != null) {
+				highlights.removeAt(new BlockPos(record.secondaryX, record.secondaryY, record.secondaryZ));
+			}
+		}
+	}
+
 	java.util.Map<String, List<ContainerRecord>> allServerData() {
 		return database.allServers();
 	}
@@ -273,7 +303,13 @@ public final class SearchController {
 			activeSearchItem = identifier;
 		}
 		activeFilter = filter;
-		activeVariant = variant == null ? null : variantSignature(variant.itemId, variant.name, variant.enchantmentNames);
+		activeVariant = null;
+		if (variant != null) {
+			ItemStack savedStack = ContainerSearchScreen.decodeStack(variant);
+			activeVariant = savedStack.isEmpty()
+				? variantSignature(variant.itemId, variant.name, variant.enchantmentNames)
+				: variantSignature(savedStack);
+		}
 		VARIANT_CACHE.clear();
 		highlights.show(client, records, ContainerSearcherClient.dimensionKey(client));
 		if (client.player == null) {
@@ -321,17 +357,19 @@ public final class SearchController {
 		return itemId + "|" + name + "|" + sorted;
 	}
 
+	private static String variantSignature(ItemStack stack) {
+		List<String> names = new java.util.ArrayList<>();
+		addEnchantmentNames(names, stack.get(DataComponents.ENCHANTMENTS));
+		addEnchantmentNames(names, stack.get(DataComponents.STORED_ENCHANTMENTS));
+		String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+		return variantSignature(id, stack.getHoverName().getString(), names);
+	}
+
 	private static boolean matchesActiveVariant(ItemStack stack) {
 		if (activeVariant == null) {
 			return true;
 		}
-		return VARIANT_CACHE.computeIfAbsent(stack, s -> {
-			List<String> names = new java.util.ArrayList<>();
-			addEnchantmentNames(names, s.get(DataComponents.ENCHANTMENTS));
-			addEnchantmentNames(names, s.get(DataComponents.STORED_ENCHANTMENTS));
-			String id = BuiltInRegistries.ITEM.getKey(s.getItem()).toString();
-			return activeVariant.equals(variantSignature(id, s.getHoverName().getString(), names));
-		});
+		return VARIANT_CACHE.computeIfAbsent(stack, s -> activeVariant.equals(variantSignature(s)));
 	}
 
 	private static void addEnchantmentNames(List<String> out, ItemEnchantments enchantments) {
@@ -364,7 +402,7 @@ public final class SearchController {
 		return Component.translatable(
 				"message.noobs_container_searcher.result_prefix",
 				count,
-				containerName(record.containerType)
+				record.customName == null ? containerName(record.containerType) : Component.literal(record.customName)
 			)
 			.withStyle(ChatFormatting.GRAY)
 			.append(Component.literal("[" + coordinates + "]").withStyle(style -> style
@@ -404,13 +442,21 @@ public final class SearchController {
 		return Component.literal(itemId.toString());
 	}
 
-	private static Component dimensionName(String storedDimension) {
+	static Component dimensionName(String storedDimension) {
 		Identifier id = Identifier.tryParse(storedDimension);
 		if (id == null) {
 			return Component.literal(storedDimension);
 		}
-		String key = "dimension." + id.getNamespace() + "." + id.getPath().replace('/', '.');
+		String path = id.getPath();
+		String key = "dimension." + id.getNamespace() + "." + path.replace('/', '.');
 		String translated = Component.translatable(key).getString();
-		return translated.equals(key) ? Component.literal(id.getPath()) : Component.translatable(key);
+		if (!translated.equals(key)) {
+			return Component.translatable(key);
+		}
+		return switch (id.toString()) {
+			case "minecraft:overworld", "minecraft:the_nether", "minecraft:the_end" ->
+				Component.translatable("dimension.noobs_container_searcher." + path);
+			default -> Component.literal(path);
+		};
 	}
 }

@@ -18,6 +18,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
@@ -74,6 +75,10 @@ public final class ContainerDatabase {
 	}
 
 	public void put(ContainerRecord record) {
+		ContainerRecord previous = records.get(key(record));
+		if (previous != null && previous.customName != null && Objects.equals(previous.containerType, record.containerType)) {
+			record.customName = previous.customName;
+		}
 		records.put(key(record), record);
 		save();
 	}
@@ -100,15 +105,26 @@ public final class ContainerDatabase {
 
 	public void put(ContainerRecord record, BlockPos obsoletePosition) {
 		if (obsoletePosition != null) {
-			records.remove(key(
+			ContainerRecord obsolete = records.remove(key(
 				record.server,
 				record.dimension,
 				obsoletePosition.getX(),
 				obsoletePosition.getY(),
 				obsoletePosition.getZ()
 			));
+			if (obsolete != null && Objects.equals(obsolete.containerType, record.containerType)) {
+				record.customName = obsolete.customName;
+			}
 		}
 		put(record);
+	}
+
+	public void rename(ContainerRecord record, String name) {
+		ContainerRecord current = records.get(key(record));
+		if (current != null) {
+			current.customName = name.isBlank() ? null : name.strip();
+			save();
+		}
 	}
 
 	public ContainerRecord find(String server, String dimension, BlockPos pos) {

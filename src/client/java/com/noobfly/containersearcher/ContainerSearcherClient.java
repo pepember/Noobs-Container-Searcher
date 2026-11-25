@@ -94,6 +94,7 @@ public final class ContainerSearcherClient {
 		SEARCH.register();
 		Highlights.register(HIGHLIGHTS);
 		Platform.registerEvents(this);
+		Platform.registerInventorySearch(SEARCH::openSearchFromInventory);
 	}
 
 	// right-click on a block

@@ -1,8 +1,44 @@
 # Noob's Container Searcher
 
+Русскоязычный форк для **Minecraft Java 1.21.11 и 26.3 на Fabric**. Мод запоминает содержимое открытых контейнеров на клиенте и позволяет найти нужный предмет, не возвращаясь к каждому сундуку.
+
+## Установка
+
+1. Установите Fabric Loader и Fabric API для нужной версии игры.
+2. Положите в `mods` один JAR форка с номером вашей версии Minecraft. Если оригинальный Noob's Container Searcher уже установлен, замените его JAR.
+3. Выберите «Русский» в языковых настройках Minecraft. Сохранённые данные читаются из прежней папки `config/noobs-container-searcher`.
+
+| Minecraft | Java | Fabric API, использованный в сборке |
+| --- | --- | --- |
+| 1.21.11 | 21 | `0.141.6+1.21.11` |
+| 26.3 | 25 | `0.162.0+26.3` |
+
+## Возможности форка
+
+- `G` или кнопка «Хранилище» в обычном и творческом инвентаре открывает поиск. Поддерживаются русские названия предметов, зачарований и операторы вроде `имя:алмаз` и `описание:редкий`.
+- Наведите прицел на ранее открытый контейнер и нажмите `K`, чтобы просмотреть сохранённое содержимое. Клавишу можно переназначить в настройках управления.
+- Поиск видит предметы внутри мешков и шалкеров. При выборе вложенного предмета подсвечивается слот предмета, внутри которого он лежит.
+- Кнопка «Сведения» в результате поиска позволяет задать своё название контейнера или удалить запись о нём. Для поиска по названию подходит запрос вида `тип:склад_еды`. Если снова открыть забытый контейнер, мод запомнит его содержимое заново.
+- Сбор статистики отключён при новой установке.
+
+Функции хранения и просмотра появились под влиянием [ChestTracker](https://github.com/ponuing/ChestTracker). Основа форка — [Noob's Container Searcher](https://github.com/nooobfly/Noobs-Container-Searcher).
+
+## Сборка Fabric
+
+Для сборки обеих версий нужен JDK 25. Сборка для Minecraft 1.21.11 создаёт байткод Java 21. В PowerShell запустите нужную команду.
+
+```powershell
+.\gradlew.bat build '-Pmc=1.21.11' -PnoBump
+.\gradlew.bat build '-Pmc=26.3' -PnoBump
+```
+
+Готовые JAR-файлы находятся в `build/fabric/<версия>/libs/`. Файлы с суффиксом `-sources.jar` содержат исходники.
+
+## Upstream features
+
 Remembers every chest, barrel, furnace and villager trade you open. Search them from anywhere, and see what changed since your last visit. Basically an item finder.
 
-A client-side Fabric and NeoForge mod, nothing needs to be installed on the server. One jar works on Minecraft 1.21.1, 1.21.4, 1.21.8, 1.21.10, 1.21.11, 26.1, 26.1.2, 26.2 and 26.3.
+A client-side mod. It runs without an installation on the server.
 
 The mod saves container contents locally when you open a physical container such as a chest, double chest, barrel, furnace, shulker box, or other storage block. It does not scan unopened containers, does not reveal hidden inventories, and only searches through data that your client has already seen.
 
@@ -81,17 +117,4 @@ Virtual menus such as server shops, markets, or trader menus are ignored when po
 
 **Anonymous usage stats**
 
-To decide which Minecraft versions and loaders are worth supporting, the mod sends a tiny anonymous ping once every 12 hours. It only contains the mod version, the Minecraft version, the loader (Fabric or NeoForge) and a random install ID. No IP address, player name, server address, world or container data is ever sent or stored.
-
-Toggleable at the bottom of the Settings tab in the mod's GUI, or set `"enabled": false` in `config/noobs-container-searcher/analytics.json`.
-
-## Building
-
-```
-.\gradlew.bat build -Pmc=26.2
-.\build-all.ps1
-```
-
-`-Pmc` picks the Minecraft version, and `build-all.ps1` builds all of them. Jars end up in `build/libs`. `mod_version` is bumped after every build, add `-PnoBump` to skip that.
-
-The mod logic lives in `src/client`, and the version-specific parts are in the `src/mc*` folders. Each version's settings are in `gradle/mc-<version>.properties`.
+Usage stats are off on a fresh install of this fork. When enabled in Settings, the mod sends its version, the Minecraft version, the loader and a random install ID to the upstream analytics endpoint. Existing installations keep the setting saved in `config/noobs-container-searcher/analytics.json`.

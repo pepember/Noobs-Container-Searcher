@@ -2,7 +2,13 @@ package com.noobfly.containersearcher.compat;
 
 import com.noobfly.containersearcher.ContainerSearcherClient;
 import com.noobfly.containersearcher.SearchController;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionResult;
 import net.neoforged.bus.api.IEventBus;
@@ -14,6 +20,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
 import java.nio.file.Path;
+import java.util.function.Consumer;
 
 // NeoForge half of Platform, the Fabric one is in src/fabric
 public final class Platform {
@@ -84,6 +91,21 @@ public final class Platform {
 		NeoForge.EVENT_BUS.addListener((ScreenEvent.Closing event) -> {
 			if (event.getScreen() instanceof AbstractContainerScreen<?>) {
 				client.onContainerScreenClosed();
+			}
+		});
+	}
+
+	public static void registerInventorySearch(Consumer<Screen> openSearch) {
+		NeoForge.EVENT_BUS.addListener((ScreenEvent.Init.Post event) -> {
+			Screen screen = event.getScreen();
+			if (screen instanceof InventoryScreen || screen instanceof CreativeModeInventoryScreen) {
+				Minecraft minecraft = Minecraft.getInstance();
+				Component label = Component.translatable("screen.noobs_container_searcher.inventory_search");
+				event.addListener(Button.builder(label, pressed -> openSearch.accept(screen))
+					.bounds(5, 5, minecraft.font.width(label) + 12, 20)
+					.tooltip(Tooltip.create(
+						Component.translatable("screen.noobs_container_searcher.inventory_search_hint")))
+					.build());
 			}
 		});
 	}

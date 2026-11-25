@@ -3,6 +3,7 @@ package com.noobfly.containersearcher;
 import com.noobfly.containersearcher.compat.Compat;
 import com.noobfly.containersearcher.compat.Gfx;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -96,7 +97,7 @@ public final class TargetArrows {
 			int step = (int) Math.round(Math.toDegrees(Math.atan2(target.dirX, -target.dirY)) / 5.0D);
 			graphics.icon("arrow_" + String.format("%02d", Math.floorMod(step, 72)), cx - ICON_SIZE / 2, cy - ICON_SIZE / 2, ICON_SIZE);
 
-			String label = Math.round(target.distance) + " m";
+			Component label = Component.translatable("screen.noobs_container_searcher.distance_short", Math.round(target.distance));
 			int labelWidth = client.font.width(label);
 			// the label sits on the inner side of the arrow so it never leaves the screen
 			int labelX = (int) Math.round(cx - target.dirX * 24.0D - labelWidth / 2.0D);

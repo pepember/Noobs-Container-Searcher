@@ -23,7 +23,7 @@ public final class Analytics {
 	private static final Gson GSON = new Gson();
 
 	private static final class State {
-		boolean enabled = true;
+		boolean enabled;
 		String installId;
 		long lastPing;
 	}

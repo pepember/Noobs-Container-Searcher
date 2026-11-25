@@ -1,0 +1,8 @@
+{
+	"required": true,
+	"package": "com.noobfly.containersearcher.fabric.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"ScreenWidgetAccessor"
+	]
+}
