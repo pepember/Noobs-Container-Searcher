@@ -1,10 +1,10 @@
 // One source tree, several Minecraft targets.
-//   .\gradlew.bat build -Pmc=26.2      (default)
-//   .\gradlew.bat build -Pmc=1.21.11
+//   .\gradlew.bat build '-Pmc=26.3'      (default)
+//   .\gradlew.bat build '-Pmc=1.21.11'
 // Each target's Loom version, Java level and compat source folder
 // are read from gradle/mc-<version>.properties.
 buildscript {
-	def selectedMc = project.hasProperty("mc") ? project.property("mc").toString() : "26.2"
+	def selectedMc = project.hasProperty("mc") ? project.property("mc").toString() : "26.3"
 	def selectedProps = new Properties()
 	def mcPropsFile = new File(rootDir, "gradle/mc-${selectedMc}.properties")
 	if (!mcPropsFile.exists()) {
@@ -36,12 +36,13 @@ def javaVersion = JavaVersion.toVersion(mcProps.java_version)
 version = project.mod_version
 group = project.maven_group
 
+layout.buildDirectory = file("build/fabric/${minecraftVersion}")
+
 base {
-	archivesName = project.archives_base_name
+	archivesName = "${project.archives_base_name}-fabric-mc${minecraftVersion}"
 }
 
-// noobs-container-searcher.jar (no version in the name: the new jar overwrites the old one in the mods folder,
-// so users do not end up with stale versions piling up).
+// Keep a stable filename across mod updates for the same Minecraft version.
 tasks.withType(AbstractArchiveTask).configureEach {
 	archiveVersion = ""
 }
@@ -81,6 +82,12 @@ repositories {
 
 loom {
 	splitEnvironmentSourceSets()
+
+	runs {
+		client {
+			runDir = "run-fabric/${minecraftVersion}"
+		}
+	}
 
 	mods {
 		"noobs_container_searcher" {
