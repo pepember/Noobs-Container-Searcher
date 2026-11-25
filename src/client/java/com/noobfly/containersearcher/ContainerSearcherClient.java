@@ -12,7 +12,6 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
@@ -21,7 +20,6 @@ import net.minecraft.resources.RegistryOps;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.MenuProvider;
-import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
@@ -467,6 +465,20 @@ public final class ContainerSearcherClient {
 		return isContainerBlock(level, pos) ? pos : null;
 	}
 
+	static ContainerRecord rememberedContainerAtCrosshair(Minecraft client, ContainerDatabase database) {
+		if (client.player == null || client.level == null || Compat.screen(client) != null) {
+			return null;
+		}
+		BlockPos target = pickedContainerPos(client.player, client.level);
+		if (target == null) {
+			return null;
+		}
+		BlockPos pos = canonicalContainerPos(target, client.level.getBlockState(target));
+		ContainerRecord record = database.find(serverKey(client), dimensionKey(client), pos);
+		return record != null && !record.blockGone && blockId(client, target).equals(record.containerType)
+			? record : null;
+	}
+
 	private void captureOpenScreen(Minecraft client) {
 		if (Compat.screen(client) instanceof MerchantScreen screen) {
 			captureOpenVillager(client, screen.getMenu());
@@ -522,43 +534,40 @@ public final class ContainerSearcherClient {
 			return;
 		}
 
-		Map<String, Integer> contents = new LinkedHashMap<>();
-		List<ContainerItemRecord> entries = new ArrayList<>();
-		boolean hasContainerSlots = false;
+		boolean newSession = menu.containerId != lastCapturedContainerId;
+		// The server has not sent initial contents yet.
+		if (newSession && menu.getStateId() == 0) {
+			return;
+		}
+		List<ItemStack> slots = new ArrayList<>();
 		int fingerprint = 1;
 		for (Slot slot : menu.slots) {
 			if (slot.container instanceof Inventory) {
 				continue;
 			}
-			hasContainerSlots = true;
 			ItemStack stack = slot.getItem();
-			if (!stack.isEmpty()) {
-				String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-				contents.merge(itemId, stack.getCount(), Integer::sum);
-				entries.add(itemRecord(client, stack, itemId));
-				fingerprint = 31 * fingerprint + itemId.hashCode();
-				fingerprint = 31 * fingerprint + stack.getCount();
-				fingerprint = 31 * fingerprint + addShulkerContents(client, stack, contents, entries);
-			} else {
-				fingerprint *= 31;
-			}
+			slots.add(stack);
+			fingerprint = 31 * fingerprint + (stack.isEmpty() ? 0 : PackedItems.fingerprint(stack, 0));
 		}
-		if (!hasContainerSlots) {
-			return;
-		}
-		boolean newSession = menu.containerId != lastCapturedContainerId;
-		// the server has not sent the contents yet, we would think everything vanished
-		if (newSession && menu.getStateId() == 0) {
+		if (slots.isEmpty()) {
 			return;
 		}
 		HIGHLIGHTS.removeAt(openContainerPos);
 		if (openDuplicatePos != null) {
 			HIGHLIGHTS.removeAt(openDuplicatePos);
 		}
-		if (menu.containerId == lastCapturedContainerId && fingerprint == lastCapturedFingerprint) {
+		if (!newSession && fingerprint == lastCapturedFingerprint) {
 			return;
 		}
 
+		Map<String, Integer> contents = new LinkedHashMap<>();
+		List<ContainerItemRecord> entries = new ArrayList<>();
+		for (int index = 0; index < slots.size(); index++) {
+			ItemStack stack = slots.get(index);
+			if (!stack.isEmpty()) {
+				addItem(client, stack, contents, entries, new ArrayList<>(), index);
+			}
+		}
 		if (newSession) {
 			ContainerChanges.begin(client, DATABASE, openContainerPos, openDuplicatePos, contents, entries);
 		}
@@ -577,6 +586,7 @@ public final class ContainerSearcherClient {
 			client.level.getBlockState(openContainerPos).getBlock()
 		).toString();
 		record.updatedAt = System.currentTimeMillis();
+		record.slotCount = slots.size();
 		record.items = contents;
 		record.entries = entries;
 		DATABASE.put(record, openDuplicatePos);
@@ -599,6 +609,7 @@ public final class ContainerSearcherClient {
 			}
 			other.items = current.items;
 			other.entries = current.entries;
+			other.slotCount = current.slotCount;
 			other.updatedAt = current.updatedAt;
 			DATABASE.put(other, null);
 		}
@@ -687,29 +698,26 @@ public final class ContainerSearcherClient {
 			.orElse(null);
 	}
 
-	// items packed inside a shulker box count as being in this container too, tagged with the box name
-	private static int addShulkerContents(Minecraft client, ItemStack box, Map<String, Integer> contents, List<ContainerItemRecord> entries) {
-		ItemContainerContents packed = box.get(DataComponents.CONTAINER);
-		if (packed == null) {
-			return 0;
+	private static void addItem(
+		Minecraft client, ItemStack stack, Map<String, Integer> contents, List<ContainerItemRecord> entries,
+		List<PackedItems.Parent> path, int slot
+	) {
+		String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+		contents.merge(itemId, stack.getCount(), Integer::sum);
+		ContainerItemRecord record = itemRecord(client, stack, itemId);
+		if (path.isEmpty()) {
+			record.slot = slot;
+		} else {
+			record.inside = PackedItems.pathName(path);
+			record.packPath = List.copyOf(path);
 		}
-		String boxName = box.getHoverName().getString();
-		int hash = 0;
-		NonNullList<ItemStack> slots = NonNullList.withSize(27, ItemStack.EMPTY);
-		packed.copyInto(slots);
-		for (ItemStack inner : slots) {
-			if (inner.isEmpty()) {
-				continue;
-			}
-			String innerId = BuiltInRegistries.ITEM.getKey(inner.getItem()).toString();
-			contents.merge(innerId, inner.getCount(), Integer::sum);
-			ContainerItemRecord record = itemRecord(client, inner, innerId);
-			record.inside = boxName;
-			entries.add(record);
-			hash = 31 * hash + innerId.hashCode();
-			hash = 31 * hash + inner.getCount();
+		entries.add(record);
+		if (path.size() >= PackedItems.MAX_DEPTH || !PackedItems.hasContents(stack)) {
+			return;
 		}
-		return hash;
+		path.add(PackedItems.Parent.fromStack(stack));
+		PackedItems.contents(stack).forEach(item -> addItem(client, item, contents, entries, path, slot));
+		path.removeLast();
 	}
 
 	private static ContainerItemRecord itemRecord(Minecraft client, ItemStack stack, String itemId) {

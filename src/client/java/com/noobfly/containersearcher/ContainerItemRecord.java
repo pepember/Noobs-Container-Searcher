@@ -5,8 +5,10 @@ import java.util.List;
 
 public final class ContainerItemRecord {
 	public String itemId;
-	// name of the shulker box this item was packed in, null when it sits loose
+	// Kept for older saved data. A packed item also records its current path below.
 	public String inside;
+	public List<PackedItems.Parent> packPath = List.of();
+	public Integer slot;
 	public String stackData;
 	public int count;
 	public String name;

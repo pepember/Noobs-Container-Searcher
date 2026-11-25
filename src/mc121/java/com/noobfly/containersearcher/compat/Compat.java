@@ -8,7 +8,12 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.BundleContents;
+import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.phys.EntityHitResult;
+
+import java.util.stream.Stream;
 
 public final class Compat {
 	private Compat() {
@@ -59,5 +64,13 @@ public final class Compat {
 	public static void createFireworks(net.minecraft.client.multiplayer.ClientLevel level, double x, double y, double z,
 		java.util.List<net.minecraft.world.item.component.FireworkExplosion> explosions) {
 		level.createFireworks(x, y, z, 0.0D, 0.0D, 0.0D, explosions);
+	}
+
+	public static Stream<ItemStack> containerItems(ItemContainerContents container) {
+		return container.nonEmptyStream();
+	}
+
+	public static Stream<ItemStack> bundleItems(BundleContents bundle) {
+		return bundle.itemCopyStream();
 	}
 }

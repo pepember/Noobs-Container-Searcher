@@ -17,6 +17,7 @@ public final class ContainerRecord {
 	public String entityUuid;
 	public String villagerProfession;
 	public long updatedAt;
+	public int slotCount;
 	public Map<String, Integer> items = new LinkedHashMap<>();
 	public java.util.List<ContainerItemRecord> entries = new java.util.ArrayList<>();
 	// openings we saw from a distance since the last time the player looked inside

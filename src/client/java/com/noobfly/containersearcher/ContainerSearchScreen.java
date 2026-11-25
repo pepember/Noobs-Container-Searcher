@@ -815,7 +815,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 			afterName += countW;
 		}
 		if (row.item.inside != null && afterName + 20 < rightX) {
-			String inside = trim(Component.translatable("screen.noobs_container_searcher.inside_box", row.item.inside).getString(), rightX - afterName - 4);
+			String inside = trim(Component.translatable("screen.noobs_container_searcher.inside_box", PackedItems.pathName(row.item)).getString(), rightX - afterName - 4);
 			g.text(font, inside, afterName, y + 4, containerColor("shulker"));
 		}
 
@@ -2554,7 +2554,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		return record.entityUuid != null && !record.entityUuid.isBlank();
 	}
 
-	private static List<ContainerItemRecord> entries(ContainerRecord record) {
+	static List<ContainerItemRecord> entries(ContainerRecord record) {
 		if (record.entries != null && !record.entries.isEmpty()) {
 			return record.entries;
 		}
@@ -2627,7 +2627,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 	// a full name ("chest", "shulker_box" for any colour) wins; otherwise a start of a name or of one of its
 	// words counts ("che" finds chests, "dro" droppers), and as a last try any part of the id or shown name
 	private boolean matchesContainerTypeName(ContainerRecord record, String value) {
-		if (record.customName != null && record.customName.toLowerCase(Locale.ROOT).replace(' ', '_').contains(value)) {
+		if (record.customName != null && itemSearchText(record.customName).replace(' ', '_').contains(value)) {
 			return true;
 		}
 		if (record.containerType == null) {
@@ -2680,7 +2680,8 @@ public final class ContainerSearchScreen extends CompatScreen {
 			return switch (key) {
 				case "is", "свойство" -> matchesFlag(item, value);
 				case "enchant", "buyu", "чары", "зачарование" -> matchesEnchantment(item, value);
-				case "inside", "icinde", "внутри" -> item.inside != null && itemSearchText(item.inside).contains(value);
+				case "inside", "icinde", "внутри" -> item.inside != null
+					&& (itemSearchText(item.inside).contains(value) || itemSearchText(PackedItems.pathName(item)).contains(value));
 				case "name", "isim", "имя", "название" -> itemSearchText(localizedItemName(item)).contains(value);
 				case "lore", "aciklama", "açıklama", "описание" -> loreText(item).contains(value);
 				case "durability", "dur", "dayaniklilik", "dayanıklılık", "прочность" -> matchesDurability(item, value);
@@ -2702,7 +2703,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 			case "damaged", "повреждено" -> "flag:damaged";
 			case "full", "full durability", "полная прочность" -> "flag:full_durability";
 			case "low", "low durability", "низкая прочность" -> "flag:low_durability";
-			case "shulker", "in shulker", "шалкер", "в шалкере" -> "flag:in_shulker";
+			case "shulker", "in shulker", "packed", "шалкер", "в шалкере", "внутри" -> PackedItems.FILTER;
 			default -> null;
 		};
 		return flag != null && passesFilter(item, flag);
@@ -2738,7 +2739,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		filters.put("flag:damaged", new FilterEntry("flag:damaged", Component.translatable("screen.noobs_container_searcher.filter_damaged").getString(), 0));
 		filters.put("flag:full_durability", new FilterEntry("flag:full_durability", Component.translatable("screen.noobs_container_searcher.filter_full_durability").getString(), 0));
 		filters.put("flag:low_durability", new FilterEntry("flag:low_durability", Component.translatable("screen.noobs_container_searcher.filter_low_durability").getString(), 0));
-		filters.put("flag:in_shulker", new FilterEntry("flag:in_shulker", Component.translatable("screen.noobs_container_searcher.filter_in_shulker").getString(), 0));
+		filters.put(PackedItems.FILTER, new FilterEntry(PackedItems.FILTER, Component.translatable("screen.noobs_container_searcher.filter_packed").getString(), 0));
 	}
 
 	private static void countContainerType(Map<String, ContainerTypeEntry> types, ContainerRecord record) {
@@ -2919,7 +2920,7 @@ public final class ContainerSearchScreen extends CompatScreen {
 		return item.enchanted ? ENCHANT_PURPLE : TEXT_PRIMARY;
 	}
 
-	private static ItemStack displayStack(Item item, ContainerItemRecord record) {
+	static ItemStack displayStack(Item item, ContainerItemRecord record) {
 		ItemStack decoded = decodeStack(record);
 		if (!decoded.isEmpty()) {
 			return decoded;

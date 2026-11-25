@@ -55,6 +55,7 @@ public final class SearchController {
 	private static String activeFilter;
 	// signature of the exact stack picked in the gui, so other enchanted books etc. don't glow too
 	private static String activeVariant;
+	private static boolean activePackedOnly;
 	private static final java.util.Map<ItemStack, Boolean> VARIANT_CACHE = new java.util.WeakHashMap<>();
 
 	private final ContainerDatabase database;
@@ -62,6 +63,7 @@ public final class SearchController {
 	private KeyMapping searchHeldItemKey;
 	private KeyMapping searchModifierKey;
 	private KeyMapping openSearchMenuKey;
+	private KeyMapping previewContainerKey;
 
 	public SearchController(ContainerDatabase database, HighlightManager highlights) {
 		this.database = database;
@@ -72,6 +74,7 @@ public final class SearchController {
 		searchHeldItemKey = Keys.register("key.noobs_container_searcher.search_held_item", InputConstants.KEY_R);
 		searchModifierKey = Keys.register("key.noobs_container_searcher.search_modifier", InputConstants.KEY_LALT);
 		openSearchMenuKey = Keys.register("key.noobs_container_searcher.open_search_menu", InputConstants.KEY_G);
+		previewContainerKey = Keys.register("key.noobs_container_searcher.preview_container", InputConstants.KEY_K);
 
 		Platform.registerCommands(this);
 	}
@@ -90,12 +93,16 @@ public final class SearchController {
 		while (openSearchMenuKey.consumeClick()) {
 			openSearchMenu(client);
 		}
+		while (previewContainerKey.consumeClick()) {
+			previewContainer(client);
+		}
 	}
 
 	public static void clearActiveItem() {
 		activeSearchItem = null;
 		activeFilter = null;
 		activeVariant = null;
+		activePackedOnly = false;
 		VARIANT_CACHE.clear();
 	}
 
@@ -106,11 +113,9 @@ public final class SearchController {
 		}
 
 		ItemStack stack = slot.getItem();
-		if (slot.container instanceof Inventory
-			|| stack.isEmpty()
-			|| !BuiltInRegistries.ITEM.getKey(stack.getItem()).equals(activeSearchItem)
-			|| !matchesActiveFilter(stack)
-			|| !matchesActiveVariant(stack)) {
+		if (slot.container instanceof Inventory || stack.isEmpty()
+			|| !((!activePackedOnly && matchesActiveItem(stack))
+				|| PackedItems.anyMatch(stack, SearchController::matchesActiveItem, 0))) {
 			return;
 		}
 
@@ -123,6 +128,11 @@ public final class SearchController {
 		graphics.fill(x - 1, y + 15, x + 17, y + 17, color);
 		graphics.fill(x - 1, y + 1, x + 1, y + 15, color);
 		graphics.fill(x + 15, y + 1, x + 17, y + 15, color);
+	}
+
+	private static boolean matchesActiveItem(ItemStack stack) {
+		return BuiltInRegistries.ITEM.getKey(stack.getItem()).equals(activeSearchItem)
+			&& matchesActiveFilter(stack) && matchesActiveVariant(stack);
 	}
 
 	private <S> LiteralArgumentBuilder<S> createCommand(String name, CommandMessenger<S> messenger) {
@@ -192,10 +202,8 @@ public final class SearchController {
 			error.accept(Component.translatable("message.noobs_container_searcher.unknown_item", itemId));
 			return 0;
 		}
+		clearActiveItem();
 		activeSearchItem = identifier;
-		activeFilter = null;
-		activeVariant = null;
-		VARIANT_CACHE.clear();
 
 		List<ContainerRecord> matches = database.search(
 			ContainerSearcherClient.serverKey(client),
@@ -241,6 +249,18 @@ public final class SearchController {
 				Compat.message(client.player, message.copy().withStyle(ChatFormatting.RED));
 			}
 		});
+	}
+
+	private void previewContainer(Minecraft client) {
+		if (client.player == null || ServerRules.modDisabled() || Compat.screen(client) != null) {
+			return;
+		}
+		ContainerRecord record = ContainerSearcherClient.rememberedContainerAtCrosshair(client, database);
+		if (record == null) {
+			Compat.message(client.player, Component.translatable("message.noobs_container_searcher.preview_not_saved"));
+			return;
+		}
+		Compat.setScreen(client, new ContainerPreviewScreen(record));
 	}
 
 	private int openSearchMenu(Minecraft client, Consumer<Component> error) {
@@ -310,6 +330,7 @@ public final class SearchController {
 				? variantSignature(variant.itemId, variant.name, variant.enchantmentNames)
 				: variantSignature(savedStack);
 		}
+		activePackedOnly = PackedItems.FILTER.equals(filter) || (!all && variant != null && variant.inside != null);
 		VARIANT_CACHE.clear();
 		highlights.show(client, records, ContainerSearcherClient.dimensionKey(client));
 		if (client.player == null) {
@@ -340,10 +361,7 @@ public final class SearchController {
 			case "flag:low_durability" -> stack.isDamageableItem()
 				&& stack.getMaxDamage() > 0
 				&& Math.round((stack.getMaxDamage() - stack.getDamageValue()) * 100.0F / stack.getMaxDamage()) <= 25;
-			case "flag:in_shulker" -> {
-				var packed = stack.get(DataComponents.CONTAINER);
-				yield packed != null && !packed.equals(net.minecraft.world.item.component.ItemContainerContents.EMPTY);
-			}
+			case PackedItems.FILTER -> true;
 			default -> activeFilter.startsWith("ench:")
 				&& hasEnchantment(stack.get(DataComponents.ENCHANTMENTS), activeFilter.substring("ench:".length()))
 				|| activeFilter.startsWith("ench:")
