@@ -878,8 +878,10 @@ public final class ContainerSearchScreen extends CompatScreen {
 			Compat.setScreen(minecraft, null);
 			return;
 		}
-		List<ContainerRecord> targets = all ? recordsFor(row) : singleRecordFor(row);
-		controller.focusItem(row.itemId, targets, selectedFilter, row.item, all);
+		List<ResultRow> matchingRows = all ? rowsFor(row) : List.of(row);
+		List<ContainerRecord> targets = all ? recordsFor(row, matchingRows) : singleRecordFor(row);
+		List<ContainerItemRecord> matches = matchingRows.stream().map(result -> result.item).toList();
+		controller.focusItem(row.itemId, targets, selectedFilter, row.item, matches, all);
 		Compat.setScreen(minecraft, null);
 	}
 
@@ -2514,13 +2516,19 @@ public final class ContainerSearchScreen extends CompatScreen {
 	}
 
 	private List<ContainerRecord> recordsFor(ResultRow row) {
+		return recordsFor(row, rowsFor(row));
+	}
+
+	private List<ResultRow> rowsFor(ResultRow row) {
+		return rows.stream()
+			.filter(other -> other.variant.equals(row.variant) && isVillager(other.record) == isVillager(row.record))
+			.toList();
+	}
+
+	private List<ContainerRecord> recordsFor(ResultRow row, List<ResultRow> matchingRows) {
 		Map<String, ContainerRecord> matches = new HashMap<>();
-		for (ResultRow other : rows) {
-			if (other.variant.equals(row.variant)
-				&& isVillager(other.record) == isVillager(row.record)
-				&& (selectedFilter == null || passesFilter(other.item, selectedFilter))) {
-				matches.put(recordIdentity(other.record), other.record);
-			}
+		for (ResultRow other : matchingRows) {
+			matches.put(recordIdentity(other.record), other.record);
 		}
 		// the ender inventory is listed once, but every standing ender chest we know should light up and get named in chat
 		if (isEnderChest(row.record) && !row.record.blockGone) {

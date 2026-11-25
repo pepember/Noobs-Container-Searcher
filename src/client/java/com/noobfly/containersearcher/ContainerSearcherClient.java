@@ -473,10 +473,22 @@ public final class ContainerSearcherClient {
 		if (target == null) {
 			return null;
 		}
-		BlockPos pos = canonicalContainerPos(target, client.level.getBlockState(target));
-		ContainerRecord record = database.find(serverKey(client), dimensionKey(client), pos);
-		return record != null && !record.blockGone && blockId(client, target).equals(record.containerType)
-			? record : null;
+		BlockState state = client.level.getBlockState(target);
+		BlockPos primary = canonicalContainerPos(target, state);
+		String server = serverKey(client);
+		String dimension = dimensionKey(client);
+		String type = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+		ContainerRecord record = database.find(server, dimension, primary);
+		if (isPreviewable(record, type)) {
+			return record;
+		}
+		BlockPos other = primary.equals(target) ? connectedChestPos(target, state) : target;
+		record = other == null ? null : database.find(server, dimension, other);
+		return isPreviewable(record, type) ? record : null;
+	}
+
+	private static boolean isPreviewable(ContainerRecord record, String type) {
+		return record != null && !record.blockGone && type.equals(record.containerType);
 	}
 
 	private void captureOpenScreen(Minecraft client) {

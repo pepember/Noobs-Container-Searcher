@@ -30,6 +30,8 @@ import net.minecraft.world.item.ItemStack;
 import com.mojang.blaze3d.platform.InputConstants;
 
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public final class SearchController {
@@ -53,10 +55,11 @@ public final class SearchController {
 
 	private static Identifier activeSearchItem;
 	private static String activeFilter;
-	// signature of the exact stack picked in the gui, so other enchanted books etc. don't glow too
-	private static String activeVariant;
-	private static boolean activePackedOnly;
-	private static final java.util.Map<ItemStack, Boolean> VARIANT_CACHE = new java.util.WeakHashMap<>();
+	private static ItemStack activeVariant = ItemStack.EMPTY;
+	private static String legacyVariant;
+	private static boolean activeLoose = true;
+	// A null set permits any packing path for command searches and old records without saved paths.
+	private static Set<List<PackedItems.Parent>> activePackPaths;
 
 	private final ContainerDatabase database;
 	private final HighlightManager highlights;
@@ -101,9 +104,10 @@ public final class SearchController {
 	public static void clearActiveItem() {
 		activeSearchItem = null;
 		activeFilter = null;
-		activeVariant = null;
-		activePackedOnly = false;
-		VARIANT_CACHE.clear();
+		activeVariant = ItemStack.EMPTY;
+		legacyVariant = null;
+		activeLoose = true;
+		activePackPaths = null;
 	}
 
 	public static void renderMatchingSlot(Gfx graphics, Slot slot) {
@@ -114,8 +118,7 @@ public final class SearchController {
 
 		ItemStack stack = slot.getItem();
 		if (slot.container instanceof Inventory || stack.isEmpty()
-			|| !((!activePackedOnly && matchesActiveItem(stack))
-				|| PackedItems.anyMatch(stack, SearchController::matchesActiveItem, 0))) {
+			|| !((activeLoose && matchesActiveItem(stack)) || matchesPackedItem(stack))) {
 			return;
 		}
 
@@ -133,6 +136,23 @@ public final class SearchController {
 	private static boolean matchesActiveItem(ItemStack stack) {
 		return BuiltInRegistries.ITEM.getKey(stack.getItem()).equals(activeSearchItem)
 			&& matchesActiveFilter(stack) && matchesActiveVariant(stack);
+	}
+
+	private static boolean matchesPackedItem(ItemStack stack) {
+		if (!PackedItems.hasContents(stack)) {
+			return false;
+		}
+		return activePackPaths == null
+			? PackedItems.anyMatch(stack, SearchController::matchesActiveItem, 0)
+			: activePackPaths.stream().anyMatch(path -> matchesPackedPath(stack, path, 0));
+	}
+
+	private static boolean matchesPackedPath(ItemStack stack, List<PackedItems.Parent> path, int index) {
+		if (index == path.size()) {
+			return matchesActiveItem(stack);
+		}
+		return PackedItems.hasContents(stack) && path.get(index).equals(PackedItems.Parent.fromStack(stack))
+			&& PackedItems.contents(stack).anyMatch(inner -> matchesPackedPath(inner, path, index + 1));
 	}
 
 	private <S> LiteralArgumentBuilder<S> createCommand(String name, CommandMessenger<S> messenger) {
@@ -316,22 +336,33 @@ public final class SearchController {
 		highlights.clear(client);
 	}
 
-	void focusItem(String itemId, List<ContainerRecord> records, String filter, ContainerItemRecord variant, boolean all) {
+	void focusItem(String itemId, List<ContainerRecord> records, String filter, ContainerItemRecord variant,
+		List<ContainerItemRecord> matches, boolean all) {
 		Minecraft client = Minecraft.getInstance();
 		Identifier identifier = Identifier.tryParse(itemId);
-		if (identifier != null) {
-			activeSearchItem = identifier;
+		if (identifier == null) {
+			return;
 		}
+		clearActiveItem();
+		activeSearchItem = identifier;
 		activeFilter = filter;
-		activeVariant = null;
-		if (variant != null) {
-			ItemStack savedStack = ContainerSearchScreen.decodeStack(variant);
-			activeVariant = savedStack.isEmpty()
-				? variantSignature(variant.itemId, variant.name, variant.enchantmentNames)
-				: variantSignature(savedStack);
+		activeVariant = ContainerSearchScreen.decodeStack(variant);
+		if (activeVariant.isEmpty() && variant.name != null) {
+			legacyVariant = variantSignature(variant.itemId, variant.name, variant.enchantmentNames);
 		}
-		activePackedOnly = PackedItems.FILTER.equals(filter) || (!all && variant != null && variant.inside != null);
-		VARIANT_CACHE.clear();
+		activeLoose = matches.stream().anyMatch(item -> item.inside == null);
+		Set<List<PackedItems.Parent>> paths = new LinkedHashSet<>();
+		boolean unknownPath = false;
+		for (ContainerItemRecord match : matches) {
+			if (match.inside != null) {
+				if (match.packPath == null || match.packPath.isEmpty()) {
+					unknownPath = true;
+				} else {
+					paths.add(match.packPath);
+				}
+			}
+		}
+		activePackPaths = unknownPath ? null : paths;
 		highlights.show(client, records, ContainerSearcherClient.dimensionKey(client));
 		if (client.player == null) {
 			return;
@@ -384,10 +415,10 @@ public final class SearchController {
 	}
 
 	private static boolean matchesActiveVariant(ItemStack stack) {
-		if (activeVariant == null) {
-			return true;
+		if (!activeVariant.isEmpty()) {
+			return ItemStack.isSameItemSameComponents(activeVariant, stack);
 		}
-		return VARIANT_CACHE.computeIfAbsent(stack, s -> activeVariant.equals(variantSignature(s)));
+		return legacyVariant == null || legacyVariant.equals(variantSignature(stack));
 	}
 
 	private static void addEnchantmentNames(List<String> out, ItemEnchantments enchantments) {

@@ -10,6 +10,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.nbt.TagParser;
@@ -356,12 +357,13 @@ public final class ContainerChanges {
 
 		Notice notice = new Notice();
 		notice.previousAt = previous.updatedAt;
-		Set<String> ids = new LinkedHashSet<>(previous.items.keySet());
+		Map<String, Integer> before = previousTotals(client, previous);
+		Set<String> ids = new LinkedHashSet<>(before.keySet());
 		ids.addAll(after.keySet());
 		boolean removed = false;
 		boolean added = false;
 		for (String id : ids) {
-			int change = after.getOrDefault(id, 0) - previous.items.getOrDefault(id, 0);
+			int change = after.getOrDefault(id, 0) - before.getOrDefault(id, 0);
 			if (change == 0) {
 				continue;
 			}
@@ -436,6 +438,44 @@ public final class ContainerChanges {
 			return;
 		}
 		active = notice;
+	}
+
+	private static Map<String, Integer> previousTotals(Minecraft client, ContainerRecord previous) {
+		if (previous.slotCount > 0 || previous.entries == null || previous.entries.isEmpty()) {
+			return previous.items;
+		}
+		Map<String, Integer> recorded = new HashMap<>();
+		Map<String, Integer> expanded = new HashMap<>();
+		boolean replacedPackedEntries = false;
+		for (ContainerItemRecord entry : previous.entries) {
+			recorded.merge(entry.itemId, entry.count, Integer::sum);
+			if (entry.inside != null) {
+				// Old snapshots listed packed entries immediately after their outer stack.
+				if (!replacedPackedEntries) {
+					expanded.merge(entry.itemId, entry.count, Integer::sum);
+				}
+				continue;
+			}
+			expanded.merge(entry.itemId, entry.count, Integer::sum);
+			ItemStack outer = decode(client, entry);
+			replacedPackedEntries = !outer.isEmpty() && PackedItems.hasContents(outer)
+				&& entry.itemId.equals(BuiltInRegistries.ITEM.getKey(outer.getItem()).toString());
+			if (replacedPackedEntries) {
+				addPackedCounts(outer, expanded, 0);
+			}
+		}
+		return recorded.equals(previous.items) ? expanded : previous.items;
+	}
+
+	private static void addPackedCounts(ItemStack outer, Map<String, Integer> counts, int depth) {
+		if (depth >= PackedItems.MAX_DEPTH || !PackedItems.hasContents(outer)) {
+			return;
+		}
+		PackedItems.contents(outer).forEach(stack -> {
+			String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+			counts.merge(id, stack.getCount(), Integer::sum);
+			addPackedCounts(stack, counts, depth + 1);
+		});
 	}
 
 	public static void clear() {
